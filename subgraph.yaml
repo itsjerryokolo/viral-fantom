@@ -1,11 +1,12 @@
-specVersion: 0.0.1
+specVersion: 0.0.2
 schema:
   file: ./schema.graphql
 dataSources:
   - kind: ethereum/contract
     name: Viral
-    network: matic
+    network: fantom
     source:
+      startBlock: 21851795
       address: "0x2FbC33DB923d9B4B6678e55d13e587a2CCb804bC"
       abi: Viral
     mapping:
@@ -13,17 +14,14 @@ dataSources:
       apiVersion: 0.0.5
       language: wasm/assemblyscript
       entities:
-        - Approval
-        - OwnershipTransferred
-        - Transfer
+        - Account
+        - Token
       abis:
         - name: Viral
           file: ./abis/Viral.json
+        - name: ViralSwapRouter
+          file: ./abis/ViralSwapRouter.json
       eventHandlers:
-        - event: Approval(indexed address,indexed address,uint256)
-          handler: handleApproval
-        - event: OwnershipTransferred(indexed address,indexed address)
-          handler: handleOwnershipTransferred
         - event: Transfer(indexed address,indexed address,uint256)
           handler: handleTransfer
       file: ./src/mapping.ts

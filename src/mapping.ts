@@ -1,76 +1,168 @@
-import { BigInt } from "@graphprotocol/graph-ts"
-import {
-  Viral,
-  Approval,
-  OwnershipTransferred,
-  Transfer
-} from "../generated/Viral/Viral"
-import { ExampleEntity } from "../generated/schema"
+import { Address, log, bigDecimal, bigInt } from "@graphprotocol/graph-ts";
+import { Viral, Transfer } from "../generated/Viral/Viral";
+import { ViralSwapRouter } from "../generated/Viral/ViralSwapRouter";
+import { Token, Account, TransferEvent } from "../generated/schema";
+import { toBigDecimal } from "./utils";
 
-export function handleApproval(event: Approval): void {
-  // Entities can be loaded from the store using a string ID; this ID
-  // needs to be unique across all entities of the same type
-  let entity = ExampleEntity.load(event.transaction.from.toHex())
+export function handleTransfer(event: Transfer): void {
+  let pathAddress = new Array<Address>();
+  pathAddress.push(
+    Address.fromString("0x2FbC33DB923d9B4B6678e55d13e587a2CCb804bC")
+  );
+  pathAddress.push(
+    Address.fromString("0x04068da6c83afcfa0e13ba15a6696662335d5b75")
+  );
 
-  // Entities only exist after they have been saved to the store;
-  // `null` checks allow to create entities on demand
-  if (!entity) {
-    entity = new ExampleEntity(event.transaction.from.toHex())
-
-    // Entity fields can be set using simple assignments
-    entity.count = BigInt.fromI32(0)
+  let token = Token.load(event.address.toHexString());
+  let fromAccount = Account.load(event.params.from.toHexString());
+  let toAccount = Account.load(event.params.to.toHexString());
+  let contract = Viral.bind(event.address);
+  let viralSwapRouter = ViralSwapRouter.bind(
+    Address.fromString("0xE5C7565B45C5109515b4dEE70330Be40d2D198fB")
+  );
+  let transferEvent = TransferEvent.load(
+    event.transaction.hash
+      .toHexString()
+      .concat("-")
+      .concat(event.logIndex.toString())
+  );
+  if (!transferEvent) {
+    transferEvent = new TransferEvent(
+      event.transaction.hash
+        .toHexString()
+        .concat("-")
+        .concat(event.logIndex.toString())
+    );
   }
 
-  // BigInt and BigDecimal math are supported
-  entity.count = entity.count + BigInt.fromI32(1)
+  if (!token) {
+    token = new Token(event.address.toHexString());
+  }
 
-  // Entity fields can be set based on event parameters
-  entity.owner = event.params.owner
-  entity.spender = event.params.spender
+  if (!fromAccount) {
+    fromAccount = new Account(event.params.from.toHexString());
+  }
 
-  // Entities can be written to the store with `.save()`
-  entity.save()
+  if (!toAccount) {
+    toAccount = new Account(event.params.to.toHexString());
+  }
+  //Account Balance
+  let senderBalanceCall = contract.try_balanceOf(event.params.from as Address);
+  if (!senderBalanceCall.reverted) {
+    fromAccount.balance = senderBalanceCall.value;
+  } else {
+    log.warning("SenderBalanceCall reverted", []);
+  }
 
-  // Note: If a handler doesn't require existing field values, it is faster
-  // _not_ to load the entity from the store. Instead, create it fresh with
-  // `new Entity(...)`, set the fields that should be updated and save the
-  // entity back to the store. Fields that were not set or unset remain
-  // unchanged, allowing for partial updates to be applied.
+  let receiverBalanceCall = contract.try_balanceOf(event.params.to as Address);
+  if (!receiverBalanceCall.reverted) {
+    toAccount.balance = receiverBalanceCall.value;
+  } else {
+    log.warning("ReceiverBalanceCall reverted", []);
+  }
 
-  // It is also possible to access smart contracts from mappings. For
-  // example, the contract that has emitted the event can be connected to
-  // with:
-  //
-  // let contract = Contract.bind(event.address)
-  //
-  // The following functions can then be called on this contract to access
-  // state variables and other data:
-  //
-  // - contract.allowance(...)
-  // - contract.approve(...)
-  // - contract.balanceOf(...)
-  // - contract.decimals(...)
-  // - contract.decreaseAllowance(...)
-  // - contract.defaultReferrer(...)
-  // - contract.increaseAllowance(...)
-  // - contract.isMintingAllowed(...)
-  // - contract.isTrustedForwarder(...)
-  // - contract.name(...)
-  // - contract.owner(...)
-  // - contract.referralCountOf(...)
-  // - contract.referralFee(...)
-  // - contract.referrerOf(...)
-  // - contract.symbol(...)
-  // - contract.totalFee(...)
-  // - contract.totalReferrals(...)
-  // - contract.totalSupply(...)
-  // - contract.transfer(...)
-  // - contract.transferFrom(...)
-  // - contract.trustedForwarder(...)
-  // - contract.versionRecipient(...)
-  // - contract.viralFee(...)
+  //Total Supply
+  let totalSupplyCall = contract.try_totalSupply();
+  if (!totalSupplyCall.reverted) {
+    token.totalSupply = totalSupplyCall.value;
+  } else {
+    log.warning("TotalSupplyCall reverted", []);
+  }
+
+  //Referrer & Referral Balance
+  let referrerOfSenderCall = contract.try_referrerOf(
+    event.params.to as Address
+  );
+  if (!referrerOfSenderCall.reverted) {
+    toAccount.referrer = referrerOfSenderCall.value.toHexString();
+    let referrerOfSenderBalanceCall = contract.try_balanceOf(
+      referrerOfSenderCall.value
+    );
+    if (!referrerOfSenderBalanceCall.reverted) {
+      toAccount.referrerBalance = referrerOfSenderBalanceCall.value;
+    } else {
+      log.warning("ReferrerOfSenderBalanceCall reverted", []);
+    }
+  } else {
+    log.warning("ReferrerOfSenderCall reverted", []);
+  }
+
+  let referralOfReceiverCall = contract.try_referrerOf(
+    event.params.from as Address
+  );
+  if (!referralOfReceiverCall.reverted) {
+    fromAccount.referrer = referralOfReceiverCall.value.toHexString();
+    let referrerOfReceiverBalanceCall = contract.try_balanceOf(
+      referralOfReceiverCall.value
+    );
+    if (!referrerOfReceiverBalanceCall.reverted) {
+      fromAccount.referrerBalance = referrerOfReceiverBalanceCall.value;
+    } else {
+      log.warning("ReferrerOfReceiverBalanceCall reverted", []);
+    }
+  } else {
+    log.warning("ReferralOfReceiverCall Reverted", []);
+  }
+
+  //Referrer USDC Amount
+  let amountCallReferredTo = viralSwapRouter.try_getAmountsOut(
+    toAccount.referrerBalance,
+    pathAddress
+  );
+  if (!amountCallReferredTo.reverted) {
+    toAccount.referrerUsdcBalance = amountCallReferredTo.value;
+  } else {
+    log.warning("AmountCallReferredTo reverted", []);
+  }
+
+  let amountCallReferredFrom = viralSwapRouter.try_getAmountsOut(
+    fromAccount.referrerBalance,
+    pathAddress
+  );
+  if (!amountCallReferredFrom.reverted) {
+    fromAccount.referrerUsdcBalance = amountCallReferredFrom.value;
+  } else {
+    log.warning("amountCallReferredFrom reverted", []);
+  }
+
+  //Account USDC Amount
+  let senderAmountCall = viralSwapRouter.try_getAmountsOut(
+    toAccount.balance,
+    pathAddress
+  );
+  if (!senderAmountCall.reverted) {
+    toAccount.usdcValue = senderAmountCall.value;
+  } else {
+    log.warning("SenderAmountCall reverted", []);
+  }
+
+  let receiverAmountCall = viralSwapRouter.try_getAmountsOut(
+    fromAccount.balance,
+    pathAddress
+  );
+  if (!receiverAmountCall.reverted) {
+    fromAccount.usdcValue = receiverAmountCall.value;
+  } else {
+    log.warning("ReceiverAmountCall reverted", []);
+  }
+
+  transferEvent.sender = fromAccount.id;
+  transferEvent.receiver = toAccount.id;
+  transferEvent.amount = event.params.value;
+  transferEvent.blockNumber = event.block.number;
+  transferEvent.timestamp = event.block.timestamp;
+
+  token.blockNumber = event.block.number;
+  token.timestamp = event.block.timestamp;
+
+  fromAccount.blockNumber = event.block.number;
+  fromAccount.timestamp = event.block.timestamp;
+
+  toAccount.blockNumber = event.block.number;
+  toAccount.timestamp = event.block.timestamp;
+
+  fromAccount.save();
+  transferEvent.save();
+  toAccount.save();
+  token.save();
 }
-
-export function handleOwnershipTransferred(event: OwnershipTransferred): void {}
-
-export function handleTransfer(event: Transfer): void {}
